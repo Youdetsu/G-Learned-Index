@@ -23,7 +23,13 @@ template<class KeyType>
 struct KeyValue {
   KeyType key;
   uint64_t value;
+#ifdef _MSC_VER
+};
+#pragma pack(push, 1)
+#pragma pack(pop)
+#else
 } __attribute__((packed));
+#endif
 
 template<class KeyType>
 struct Row {
@@ -74,8 +80,12 @@ static DataType resolve_type(const std::string& filename) {
 }
 
 // Pins the current thread to core `core_id`.
+#ifdef _MSC_VER
+static void set_cpu_affinity(const uint32_t core_id) {
+#else
 static void set_cpu_affinity(const uint32_t core_id) __attribute__((unused));
 static void set_cpu_affinity(const uint32_t core_id) {
+#endif
 #ifdef __linux__
   cpu_set_t mask;
   CPU_ZERO(&mask);

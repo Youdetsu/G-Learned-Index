@@ -7,7 +7,7 @@
 #include <cuda.h>
 
 #define TP uint32_t
-const int SIZE = 1e7;
+const int SIZE = 1e5;
 const int epsilon = 128; // space-time trade-off parameter
 
 const int mod = 1 << 15;
@@ -98,7 +98,7 @@ void __global__ gpu_query(int first_key, LEVELS levels, SEGMENTS *segments, int 
 
 
 int main() {
-	freopen("random_1e7.in", "r", stdin);
+	freopen("random_1e5.in", "r", stdin);
     // Generate some random data
     std::vector<TP> data(0), datax(SIZE), datay(SIZE);
     std::generate(datax.begin(), datax.end(), std::rand);
@@ -135,7 +135,7 @@ int main() {
 
 
     // Query the PGM-index
-	freopen("query_1e7.in", "r", stdin);
+	freopen("query_1e5.in", "r", stdin);
 	for (int i = 0; i < 10000; i ++) {
 		int queryx, queryy;
 		std::cin >> queryx >> queryy;

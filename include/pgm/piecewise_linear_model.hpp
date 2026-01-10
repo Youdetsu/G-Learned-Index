@@ -38,7 +38,11 @@ namespace pgm::internal {
 template<typename T>
 using LargeSigned = typename std::conditional_t<std::is_floating_point_v<T>,
                                                 long double,
+#ifdef _MSC_VER
+                                                int64_t>;  // MSVC doesn't support __int128
+#else
                                                 std::conditional_t<(sizeof(T) < 8), int64_t, __int128>>;
+#endif
 
 template<typename X, typename Y>
 class OptimalPiecewiseLinearModel {
@@ -61,7 +65,7 @@ private:
         X x{};
         Y y{};
 
-        Slope operator-(const Point &p) const { return {SX(x) - p.x, SY(y) - p.y}; }
+        Slope operator-(const Point &p) const { return {SX(SX(x) - SX(p.x)), SY(SY(y) - SY(p.y))}; }
     };
 
     const Y epsilon;
