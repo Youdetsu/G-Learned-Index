@@ -123,6 +123,14 @@ public:
         
         std::cout << "[G-LISA] Index built: " << segments_count << " segments, "
                   << levels_count << " levels\n";
+        
+        // Debug: Print first segment (disabled)
+        if (false && segments_count > 0) {
+            std::cout << "[DEBUG] First segment: key=" << h_segments[0].key 
+                      << ", slope=" << h_segments[0].slope 
+                      << ", intercept=" << h_segments[0].intercept << "\n";
+            std::cout << "[DEBUG] First key=" << first_key << ", data_size=" << data_size << "\n";
+        }
     }
 
     /**

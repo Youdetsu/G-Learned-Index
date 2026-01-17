@@ -118,6 +118,11 @@ struct BenchmarkResult {
     double throughput_mqps;    // Million queries per second
     int segments;
     double locality_score;
+    
+    // Performance analysis metrics
+    double avg_search_range;   // Average search range size (hi - lo)
+    double max_search_range;   // Maximum search range
+    int total_searches;        // Total number of exact searches performed
 };
 
 // ============================================================
@@ -163,6 +168,10 @@ BenchmarkResult runBenchmark(
     std::vector<int> h_lo(num_queries);
     std::vector<int> h_hi(num_queries);
     
+    // Statistics accumulators
+    double total_range = 0;
+    double max_range = 0;
+    
     // ========================================
     // Benchmark: Same timing as g-learned.cu
     // cudaMalloc is OUTSIDE timing (same as g-learned.cu)
@@ -205,6 +214,12 @@ BenchmarkResult runBenchmark(
             d_lo, d_hi, config.curve
         );
         
+        // Check for kernel errors
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cerr << "[ERROR] Kernel launch failed: " << cudaGetErrorString(err) << "\n";
+        }
+        
         cudaEventRecord(query_stop);
         cudaEventSynchronize(query_stop);
         
@@ -230,12 +245,30 @@ BenchmarkResult runBenchmark(
         float memcpy_ms;
         cudaEventElapsedTime(&memcpy_ms, lb_start, lb_stop);
         
+        // Debug: Check first few values
+        if (batch == 0 && false) {  // Disabled debug output
+            std::cout << "[DEBUG] First 5 search ranges:\n";
+            for (int i = 0; i < 5 && i < batch_size; i++) {
+                std::cout << "  Query " << i << ": lo=" << h_lo[i] << ", hi=" << h_hi[i] 
+                          << ", range=" << (h_hi[i] - h_lo[i]) << "\n";
+            }
+        }
+        
         // CPU exact search (same as g-learned.cu)
         auto cpu_start = std::chrono::high_resolution_clock::now();
+        
         for (int i = 0; i < batch_size; i++) {
             uint32_t target = query_keys[batch * batch_size + i];
-            for (int j = h_lo[batch * batch_size + i]; 
-                 j < h_hi[batch * batch_size + i] && j < index.data_size; j++) {
+            int lo = h_lo[batch * batch_size + i];
+            int hi = h_hi[batch * batch_size + i];
+            
+            // Collect statistics
+            int range_size = hi - lo;
+            total_range += range_size;
+            max_range = std::max(max_range, (double)range_size);
+            
+            // Exact search
+            for (int j = lo; j < hi && j < index.data_size; j++) {
                 if (index.h_keys[j] == target) {
                     break;
                 }
@@ -267,13 +300,18 @@ BenchmarkResult runBenchmark(
     result.gpu_time_ms = 0;  // Not separately tracked in this mode
     result.throughput_mqps = num_queries * 1e6 / 1024.0 / 1024.0 / tot_time_us;
     
+    // Store statistics
+    result.avg_search_range = total_range / num_queries;
+    result.max_search_range = max_range;
+    result.total_searches = num_queries;
+    
     return result;
 }
 
 void printResults(const std::vector<BenchmarkResult>& results) {
-    std::cout << "\n" << std::string(110, '=') << "\n";
+    std::cout << "\n" << std::string(130, '=') << "\n";
     std::cout << "BENCHMARK RESULTS (End-to-End: GPU Prediction + CPU Exact Search)\n";
-    std::cout << std::string(110, '=') << "\n\n";
+    std::cout << std::string(130, '=') << "\n\n";
     
     std::cout << std::left << std::setw(32) << "Configuration"
               << std::right << std::setw(10) << "Build(ms)"
@@ -282,8 +320,10 @@ void printResults(const std::vector<BenchmarkResult>& results) {
               << std::setw(14) << "Throughput"
               << std::setw(10) << "Segments"
               << std::setw(10) << "Locality"
+              << std::setw(12) << "AvgRange"
+              << std::setw(12) << "MaxRange"
               << "\n";
-    std::cout << std::string(110, '-') << "\n";
+    std::cout << std::string(130, '-') << "\n";
     
     for (const auto& r : results) {
         std::cout << std::left << std::setw(32) << r.name
@@ -293,9 +333,11 @@ void printResults(const std::vector<BenchmarkResult>& results) {
                   << std::setw(10) << std::fixed << std::setprecision(1) << r.throughput_mqps << " Mqps"
                   << std::setw(10) << r.segments
                   << std::setw(10) << std::fixed << std::setprecision(1) << r.locality_score
+                  << std::setw(12) << std::fixed << std::setprecision(1) << r.avg_search_range
+                  << std::setw(12) << std::fixed << std::setprecision(0) << r.max_search_range
                   << "\n";
     }
-    std::cout << std::string(110, '=') << "\n";
+    std::cout << std::string(130, '=') << "\n";
 }
 
 // ============================================================
@@ -355,12 +397,19 @@ int main(int argc, char** argv) {
     
     printResults(results);
     
-    // Print improvement
+    // Print improvement and detailed analysis
     double speedup = results[1].throughput_mqps / results[0].throughput_mqps;
     double locality_improve = (results[0].locality_score - results[1].locality_score) / results[0].locality_score * 100;
-    std::cout << "\nHilbert vs Z-order:\n";
-    std::cout << "  Throughput: " << std::fixed << std::setprecision(2) << speedup << "x\n";
+    double range_reduction = (results[0].avg_search_range - results[1].avg_search_range) / results[0].avg_search_range * 100;
+    
+    std::cout << "\n=== Performance Analysis ===\n";
+    std::cout << "Hilbert vs Z-order:\n";
+    std::cout << "  Throughput improvement: " << std::fixed << std::setprecision(2) << speedup << "x\n";
     std::cout << "  Locality improvement: " << std::fixed << std::setprecision(1) << locality_improve << "%\n";
+    std::cout << "  Average search range reduction: " << std::fixed << std::setprecision(1) << range_reduction << "%\n";
+    std::cout << "  Z-order avg range: " << std::fixed << std::setprecision(1) << results[0].avg_search_range << "\n";
+    std::cout << "  Hilbert avg range: " << std::fixed << std::setprecision(1) << results[1].avg_search_range << "\n";
+    std::cout << "\nKey Insight: Smaller search range → Better cache locality → Higher throughput\n";
     
     std::cout << "\nBenchmark completed!\n";
     return 0;

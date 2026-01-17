@@ -35,7 +35,7 @@ __global__ void batchQueryKernel(
     
     // Step 1: Encode query point to 1D key
     uint32_t key;
-    if constexpr (Curve == CurveType::HILBERT) {
+    if (Curve == CurveType::HILBERT) {
         key = HilbertCurve::encode(query_x[tid], query_y[tid]);
     } else {
         key = ZOrderCurve::encode(query_x[tid], query_y[tid]);
@@ -67,6 +67,12 @@ __global__ void batchQueryKernel(
     // Step 4: Return search range
     results_lo[tid] = SUB_EPS(pos, Epsilon);
     results_hi[tid] = ADD_EPS(pos, Epsilon, data_size);
+    
+    // Debug: Print first thread's result (disabled)
+    if (false && tid == 0) {
+        printf("[GPU DEBUG] Thread 0: key=%u, pos=%lld, lo=%d, hi=%d\n", 
+               key, pos, results_lo[tid], results_hi[tid]);
+    }
 }
 
 /**
